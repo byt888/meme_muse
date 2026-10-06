@@ -1,0 +1,4 @@
+# 核心依赖 (纯规则逻辑, 不依赖 LLM)
+pyyaml>=6.0
+websocket-client>=1.7
+# gmgn-cli 通过 npm 安装: npm install -g gmgn-cli (不走 pip)
