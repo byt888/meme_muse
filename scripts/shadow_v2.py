@@ -22,8 +22,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from chains.gmgn_market import GmgnMarketClient, GmgnAuthError
 from screening.filters import screen, is_dead_for_benchmark
-from screening.scorer import (score_early, score_live,
-                              score_early_v2, score_live_v2)
+# v2 上线后改名: score_early/score_live = 新版(v2), score_early_legacy/score_live_legacy = 旧版
+from screening.scorer import (score_early_legacy, score_live_legacy,
+                              score_early, score_live)
 
 STAGE_MAP = {"near_completion": "near_completion", "completed": "completed_hot"}
 
@@ -72,13 +73,13 @@ def main():
             except Exception:
                 pass
             if stage == "completed":
-                a, pa = score_live(t, m50_old, 0)
-                b, _ = score_live(t, m50_new, 0)
-                c, pc = score_live_v2(t, m50_new, 0)
+                a, pa = score_live_legacy(t, m50_old, 0)
+                b, _ = score_live_legacy(t, m50_new, 0)
+                c, pc = score_live(t, m50_new, 0)
             else:
-                a, pa = score_early(t, m50_old)
-                b, _ = score_early(t, m50_new)
-                c, pc = score_early_v2(t, m50_new)
+                a, pa = score_early_legacy(t, m50_old)
+                b, _ = score_early_legacy(t, m50_new)
+                c, pc = score_early(t, m50_new)
             rows.append({
                 "symbol": t.get("symbol"), "address": t.get("address"),
                 "age_minutes": round(t.get("age_minutes") or -1, 1),

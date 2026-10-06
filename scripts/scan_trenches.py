@@ -115,6 +115,7 @@ def run_stage(stage: str, limit: int, client, paper: bool,
             "total_tax_pct": t.get("total_tax_pct"),
             "watchers": t.get("watchers"),
             "market_cap_usd": t.get("market_cap_usd"),
+            "age_minutes": t.get("age_minutes"),
             "reached": "fetched", "drop_reason": None,
             "score": None, "lifecycle": None,
         }
