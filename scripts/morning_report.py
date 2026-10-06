@@ -2,8 +2,12 @@
 """晨报: 汇总过去约10小时的纸面运行状况"""
 import json
 import os
+import sys
 from collections import Counter
 from datetime import datetime, timezone, timedelta
+
+sys.path.insert(0, os.path.expanduser("~/workspace/meme-trader/src"))
+from risk.pnl_stats import gate_status, format_gate
 
 LOGDIR = os.path.expanduser("~/workspace/meme-trader/logs")
 
@@ -52,13 +56,9 @@ def main():
     print("")
     scored = [p for p in pnls if p.get("pnl_pct") is not None]
     if scored:
-        wins = sum(1 for p in scored if p["pnl_pct"] > 0)
-        total = sum(p["pnl_pct"] for p in scored)
-        print("[盈亏] %d 个已跟踪: 胜率 %d/%d, 累计 %+.1f%%" % (len(scored), wins, len(scored), total))
-        need = 20 - len(scored)
-        print("  距20个样本还差 %d 个" % max(need, 0))
+        print(format_gate(gate_status(pnls)))
     else:
-        print("[盈亏] 暂无跟踪数据 (候选不足或未满1h)")
+        print("[盈亏] 暂无跟踪数据 (候选不足或未平仓)")
     print("=" * 50)
 
 if __name__ == "__main__":

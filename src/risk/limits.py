@@ -25,6 +25,7 @@ TAKE_PROFIT_1_PCT = 100    # +100% 卖 50% 回本金
 TRAILING_DRAWDOWN = 25      # 剩余仓位 25% 峰值回撤移动止盈
 TAKE_PROFIT_2_PCT = 400    # +400% 再卖剩余一半
 MOON_DRAWDOWN = 40         # 月球仓移动止盈放宽到 40%
+TIME_STOP_HOURS = 4        # 时间止损: 4h 到期市价全平 (纸面胜率按 4h 口径算)
 
 
 @dataclass

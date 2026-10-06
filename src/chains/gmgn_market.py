@@ -201,6 +201,32 @@ class GmgnMarketClient:
         t["launchpad_progress"] = data.get("launchpad_progress")
         return t
 
+    def get_kline(self, address: str, resolution: str = "5m",
+                from_ts: float | None = None,
+                to_ts: float | None = None) -> list[dict]:
+        """K 线 (回测用)。返回 [{"ts": 秒, "open","high","low","close"}] 升序。
+        resolution: 1m/5m/15m/1h/4h/1d"""
+        args = ["market", "kline", "--chain", self.chain,
+                "--address", address, "--resolution", resolution]
+        if from_ts:
+            args += ["--from", str(int(from_ts))]
+        if to_ts:
+            args += ["--to", str(int(to_ts))]
+        data = _run(args, timeout=30)
+        items = data.get("list") or []
+        out = []
+        for k in items:
+            try:
+                t = float(k.get("time"))
+                if t > 1e12:  # 毫秒 → 秒
+                    t /= 1000
+                out.append({"ts": t, "open": float(k["open"]),
+                            "high": float(k["high"]), "low": float(k["low"]),
+                            "close": float(k["close"])})
+            except Exception:
+                continue
+        return sorted(out, key=lambda x: x["ts"])
+
     def check_auth(self) -> bool:
         """CLI 是否已配置 (不抛异常版本)"""
         try:
