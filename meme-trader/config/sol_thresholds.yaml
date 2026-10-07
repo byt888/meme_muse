@@ -1,0 +1,54 @@
+# SOL 初筛阈值配置 (文档, 非代码数据源)
+
+> 状态: **BOOTSTRAP** (2026-10-07 起)
+> 代码唯一数据源: `src/screening/filters.py` → `THRESHOLDS["sol"]`
+> 本文件记录每条阈值的由来与待办, 改阈值时先改代码, 再同步更新本文档。
+
+## 当前值 (bootstrap, 照抄 BSC)
+
+| 阶段 | 条件 | 值 | 来源 |
+|---|---|---|---|
+| new_creation | txns > | 30 | 照抄 BSC (临时) |
+| new_creation | 总税率 ≤ | 4% | 照抄 BSC; SOL 代币多为 0 税, 该条件恒过, 保留作 fail-closed |
+| new_creation | 喊单 > | 1 | 照抄 BSC (临时) |
+| new_creation | holders > | 10 | 照抄 BSC (临时) |
+| new_creation | 浏览人数 > | 10 | 照抄 BSC (临时) |
+| near_completion | 年龄 < | 30 分钟 | 照抄 BSC (临时) |
+| near_completion | 市值 > | $5,000 | 照抄 BSC (临时) |
+| near_completion | txns > | 100 | 照抄 BSC (临时) |
+| near_completion | 总税率 ≤ | 4% | 同上 |
+| near_completion | 喊单 > | 1 | 照抄 BSC (临时) |
+| near_completion | holders > | 20 | 照抄 BSC (临时) |
+| near_completion | 浏览人数 > | 50 | 照抄 BSC (临时) |
+| completed_hot | 年龄 < | 300 分钟 | 照抄 BSC (临时) |
+| completed_hot | 池子 > | $3,000 | 照抄 BSC (临时) |
+| completed_hot | txns > | 800 | 照抄 BSC (临时) |
+| completed_hot | 总税率 ≤ | 4% | 同上 |
+| completed_hot | 喊单 > | 5 | 照抄 BSC (临时) |
+| completed_hot | holders > | 200 | 照抄 BSC (临时) |
+| completed_hot | 浏览人数 > | 200 | 照抄 BSC (临时) |
+
+## 为什么现在是照抄 (诚实说明)
+
+SOL 纸面刚启动, 没有分布数据, 任何"拍脑袋"的 SOL 专属阈值都是伪精度。
+照抄 BSC 至少保证: ①管线可跑 ②fail-closed 逻辑一致 ③淘汰原因可统计。
+**这些值不作为有效阈值, 只用于数据收集期的轨迹记录。**
+
+## 转正计划
+
+1. `paper_scan_sol.sh` 每 5 分钟跑 (cron `meme-sol-paper-scan`), 数据进
+   `logs/sol_scan_history.jsonl`, 与 BSC 独立。
+2. 跑 1–2 周后, 用 `scripts/sol_dist_stats.py` 输出各阶段 p10/p25/p50/p75/p90。
+3. 按分布定正式阈值 (原则: 卡掉明显噪音, 不卡掉有动量的币; 参考 BSC 定阈值时的
+   用户经验逻辑, 但数字来自 SOL 数据)。
+4. 正式阈值需用户确认后写入 `THRESHOLDS["sol"]`, 本文件状态改为 ACTIVE,
+   同时更新 `OPTIMIZATION_LOG.md` (改动/原因/数据依据)。
+5. 转正后 SOL 候选才进入告警 (score≥75 通知用户); bootstrap 期保持静默。
+
+## 已知的 SOL 特殊性 (定阈值时必须考虑)
+
+- SOL 新币发行量远大于 BSC, Pump.fun 一天几千个, 初筛必须更严才有意义。
+- 税条件在 SOL 上恒过, 不能作为过滤主力; 考虑用 `renounced_mint/freeze`
+  或 `lp_locked` 替代部分安全过滤 (Phase B 后续)。
+- SOL 币速度更快: 同样"年龄<30分钟"的 near_completion, SOL 的 txns 分布
+  可能数倍于 BSC, txns 阈值大概率要上调 (等数据)。

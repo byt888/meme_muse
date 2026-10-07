@@ -6,7 +6,34 @@
 
 ---
 
-## 2026-10-07 — SOL 链 Phase A: 接口验证＋适配器上线
+## 2026-10-07 — SOL Phase B 启动: 纸面扫描并行＋bootstrap 数据收集
+
+**改了什么**:
+1. `src/screening/filters.py`: 初筛阈值重构为 `THRESHOLDS[chain][stage]` 查表,
+   `screen()` 新增 `chain` 参数 (默认 bsc, 旧调用行为不变, 11 个单元测试全过)。
+   SOL 当前为 bootstrap 临时值 (照抄 BSC), 仅用于数据收集。
+2. `scripts/scan_trenches.py`: 新增 `--chain bsc|sol`;
+   sol 走 `SolAdapter`, 日志独立 (`logs/sol_scan_history.jsonl` /
+   `logs/sol_paper_trades.jsonl`, bsc 沿用历史文件名);
+   trending 缓存按链隔离; 候选记录新增 `chain` 字段;
+   富化后回填 `rec["watchers"]` (调参数据完整性)。
+3. `src/chains/sol.py`: 补 `check_auth` / `enrich_momentum` (管线需要);
+   `get_trenches` 支持 `sort_by` 透传 (0 候选兜底逻辑)。
+4. 新增 `scripts/paper_scan_sol.sh` (每 5 分钟三阶段, runlog 自写)。
+5. 新增 `scripts/sol_dist_stats.py`: 按阶段输出 txns/holders/call/watchers/
+   mcap/age 的 p10-p90 分布 ＋ 淘汰原因 top10 (转正定阈值的依据)。
+6. 新增 `config/sol_thresholds.yaml`: 阈值文档 (当前 BOOTSTRAP, 含转正计划)。
+7. 定时任务 `meme-sol-paper-scan` (每 5 分钟, goal-owned):
+   bootstrap 期**静默**, 不因 score≥75 告警 (阈值未验证), 只攒数据;
+   连续 3 次失败才通知。
+
+**首轮实测** (40 条): SOL new_creation txns p50=9 / holders p50=3 /
+喊单 p50=0 —— BSC 阈值在 SOL 上偏严 (符合预期, 数据收集期可接受);
+near_completion txns p50=796 / holders p50=131 —— txns/holders 阈值偏松,
+喊单 p50=0 偏严。转正时按完整分布重定, 需用户确认。
+
+**没做的**: SOL 正式阈值 (等 1-2 周数据)；SOL 纸面盈亏跟踪 (候选攒够后建)；
+SOL 独立纸面门禁。
 
 **背景**: 用户拍板多链总体规划 (SOL/BSC/ETH/Robinhood), SOL 为下一个。
 BSC 纸面不停, 两条链并行不互斥。
