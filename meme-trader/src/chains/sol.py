@@ -63,8 +63,9 @@ class SolAdapter(ChainAdapter):
         return f"https://gmgn.ai/sol/token/{address}"
 
     # ---- 行情发现 (委托) ----
-    def get_trenches(self, stage: str, limit: int = 50) -> list[dict]:
-        toks = self._c.get_trenches(stage, limit)
+    def get_trenches(self, stage: str, limit: int = 50,
+                     sort_by: str | None = None) -> list[dict]:
+        toks = self._c.get_trenches(stage, limit, sort_by=sort_by)
         for t in toks:
             raw = t.get("_raw", {})
             # SOL trenches 直接给 wash trading / rug ratio (BSC 没有)
@@ -109,6 +110,13 @@ class SolAdapter(ChainAdapter):
     def get_kline(self, address: str, resolution: str = "1m",
                   limit: int = 100) -> list[dict]:
         return self._c.get_kline(address, resolution)[:limit]
+
+    def check_auth(self) -> bool:
+        return self._c.check_auth()
+
+    def enrich_momentum(self, token: dict,
+                        trending_cache: list[dict] | None = None) -> dict:
+        return self._c.enrich_momentum(token, trending_cache)
 
     def swap(self, token_in: str, token_out: str, amount: float,
              slippage_pct: float, dry_run: bool = True) -> dict:

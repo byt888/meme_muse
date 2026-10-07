@@ -9,10 +9,11 @@ Trenches 扫描编排器 — 策略 2/3/4 的主循环 (第1层采集 → 第4�
     → 动量打分 scorer → 风控 limits → 纸面记录/候选输出
 
 用法:
-  python3 scripts/scan_trenches.py --stage new_creation [--limit 50] [--paper]
+  python3 scripts/scan_trenches.py --stage new_creation [--limit 50] [--paper] [--chain bsc|sol]
   无 GMGN API Key 时: --mock 用内置模拟数据跑全链路 (测试用)
 
-输出: JSONL 候选记录 → logs/paper_trades.jsonl (纸面)
+输出: JSONL 候选记录 → logs/paper_trades.jsonl (bsc) / logs/sol_paper_trades.jsonl (sol)
+注意: sol 为 bootstrap 数据收集期, 阈值为临时值, 候选仅记 sol 文件不告警
 """
 import argparse
 import json
@@ -29,6 +30,9 @@ from screening.lifecycle import classify, can_open, describe
 from screening.scorer import score_early, score_live, size_for_score
 from screening import filters as _f  # noqa
 from risk.limits import RiskState, can_open as risk_can_open, STAGE_PARAMS
+
+# 链 → 日志文件前缀 (bsc 保持历史文件名不变, 不破坏现有跟踪器)
+LOG_PREFIX = {"bsc": "", "sol": "sol_"}
 
 STAGE_MAP = {
     "new_creation": "new_creation",
@@ -66,14 +70,15 @@ def mock_tokens(stage: str) -> list[dict]:
 
 
 def run_stage(stage: str, limit: int, client, paper: bool,
-              news_confirm_fn=None) -> list[dict]:
+              news_confirm_fn=None, chain: str = "bsc",
+              log_prefix: str = "") -> list[dict]:
     gmgn_stage = stage
     if client is None:
         tokens = mock_tokens(stage)
         print(f"[mock] {stage}: {len(tokens)} tokens")
     else:
         tokens = client.get_trenches(gmgn_stage, limit)
-        print(f"[gmgn] {stage}: {len(tokens)} tokens")
+        print(f"[gmgn:{chain}] {stage}: {len(tokens)} tokens")
 
     screen_fn = STAGE_MAP[stage]
     candidates = []
@@ -121,7 +126,7 @@ def run_stage(stage: str, limit: int, client, paper: bool,
         }
         scan_records.append(rec)
         # 1. 初筛 (阶段一: 跳过 watchers, 需 token info 富化)
-        sr = screen(t, screen_fn, ignore={"watchers"})
+        sr = screen(t, screen_fn, ignore={"watchers"}, chain=chain)
         if not sr.passed:
             rec["reached"] = "screen1"
             rec["drop_reason"] = sr.failed
@@ -133,9 +138,10 @@ def run_stage(stage: str, limit: int, client, paper: bool,
                 info = client.get_token_info(addr)
                 if info and info.get("watchers") is not None:
                     t["watchers"] = info["watchers"]
+                    rec["watchers"] = info["watchers"]  # 调参数据保持同步
             except Exception as e:
                 print(f"  enrich {addr[:10]} failed: {e}")
-        sr2 = screen(t, screen_fn)  # 阶段二: 全条件 (fail-closed)
+        sr2 = screen(t, screen_fn, chain=chain)  # 阶段二: 全条件 (fail-closed)
         if not sr2.passed:
             rec["reached"] = "screen2"
             rec["drop_reason"] = sr2.failed + ["unknown:" + u for u in sr2.unknown]
@@ -162,9 +168,12 @@ def run_stage(stage: str, limit: int, client, paper: bool,
         # 3. 生命周期 (先补动量数据, trenches 没有 1h/5m 涨跌)
         if client is not None:
             try:
+                # trending 缓存按链隔离 (多链同进程时不串)
                 if not hasattr(run_stage, "_tc"):
-                    run_stage._tc = client.get_trending("1m", 200)
-                client.enrich_momentum(t, run_stage._tc)
+                    run_stage._tc = {}
+                if chain not in run_stage._tc:
+                    run_stage._tc[chain] = client.get_trending("1m", 200)
+                client.enrich_momentum(t, run_stage._tc[chain])
             except Exception as e:
                 print(f"  momentum {addr[:10]} failed: {e}")
         st = classify(t)
@@ -208,6 +217,7 @@ def run_stage(stage: str, limit: int, client, paper: bool,
         rec["reached"] = "candidate"
         candidates.append({
             "ts": datetime.now(timezone.utc).isoformat(),
+            "chain": chain,
             "stage": screen_fn, "address": addr, "symbol": t.get("symbol"),
             "score": score, "score_parts": parts,
             "lifecycle": st.value, "catalyst_strength": catalyst,
@@ -224,7 +234,7 @@ def run_stage(stage: str, limit: int, client, paper: bool,
     # 0 候选兜底: 主排序没筛出时, 按交易数降序再拉一遍 (API 上限 80/类, 无更多可拉)
     # 若仍为 0, 接受市场无机会的结论, 不再重复查询
     if client is not None and stats["screen_pass"] == 0:
-        print(f"[gmgn] {stage}: 主排序 0 通过, 按 swaps_24h 降序重试")
+        print(f"[gmgn:{chain}] {stage}: 主排序 0 通过, 按 swaps_24h 降序重试")
         try:
             extra = client.get_trenches(gmgn_stage, limit, sort_by="swaps_24h")
             stats["fetched"] += len(extra)
@@ -245,11 +255,19 @@ def main():
     ap.add_argument("--paper", action="store_true", default=True)
     ap.add_argument("--mock", action="store_true",
                     help="无 API Key 时用模拟数据")
+    ap.add_argument("--chain", default="bsc", choices=["bsc", "sol"],
+                    help="链 (默认 bsc; sol 为 bootstrap 数据收集期)")
     args = ap.parse_args()
+    chain = args.chain
+    log_prefix = LOG_PREFIX[chain]
 
     client = None
     if not args.mock:
-        client = GmgnMarketClient("bsc")
+        if chain == "sol":
+            from chains.sol import SolAdapter
+            client = SolAdapter()
+        else:
+            client = GmgnMarketClient("bsc")
         if not client.check_auth():
             print("GMGN 未配置 (gmgn-cli config --check 失败)。")
             print("用 --mock 跑模拟, 或等用户提供 API Key 后重跑。")
@@ -267,7 +285,8 @@ def main():
 
     try:
         cands, records = run_stage(args.stage, args.limit, client, args.paper,
-                                   news_confirm_fn)
+                                   news_confirm_fn, chain=chain,
+                                   log_prefix=log_prefix)
     except GmgnAuthError as e:
         print(f"GMGN 认证失败: {e}")
         raise SystemExit(2)
@@ -275,18 +294,19 @@ def main():
     logdir = os.path.expanduser("~/workspace/meme-trader/logs")
     os.makedirs(logdir, exist_ok=True)
     # 全量扫描轨迹 (调参用: 每个币走到哪一步、为什么被筛掉)
-    with open(f"{logdir}/scan_history.jsonl", "a") as f:
+    # bsc 沿用历史文件名; sol 独立文件 (bootstrap 期数据不混入 bsc)
+    hist_path = f"{logdir}/{log_prefix}scan_history.jsonl"
+    with open(hist_path, "a") as f:
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    print(f"扫描轨迹 {len(records)} 条 → logs/scan_history.jsonl")
+    print(f"扫描轨迹 {len(records)} 条 → logs/{log_prefix}scan_history.jsonl")
 
     if args.paper and cands:
-        logdir = os.path.expanduser("~/workspace/meme-trader/logs")
-        os.makedirs(logdir, exist_ok=True)
-        with open(f"{logdir}/paper_trades.jsonl", "a") as f:
+        trades_path = f"{logdir}/{log_prefix}paper_trades.jsonl"
+        with open(trades_path, "a") as f:
             for c in cands:
                 f.write(json.dumps(c, ensure_ascii=False) + "\n")
-        print(f"纸面记录 {len(cands)} 条 → logs/paper_trades.jsonl")
+        print(f"纸面记录 {len(cands)} 条 → logs/{log_prefix}paper_trades.jsonl")
     print(f"done. candidates: {len(cands)}")
 
 

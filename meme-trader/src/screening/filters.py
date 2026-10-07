@@ -16,6 +16,35 @@
 from dataclasses import dataclass, field
 
 
+# 初筛阈值表 (按链独立, 单一数据源)
+# bsc: 2026-10-05 用户确定, 不可动 (动之前先说)
+# sol: 2026-10-07 bootstrap 临时值 = 照抄 bsc, 仅用于启动数据收集;
+#      跑 1-2 周 SOL 数据后按分布重定, 见 config/sol_thresholds.yaml
+THRESHOLDS = {
+    "bsc": {
+        "new_creation": {"txns": 30, "total_tax_pct": 4, "call_count": 1,
+                         "holders": 10, "watchers": 10},
+        "near_completion": {"age_minutes": 30, "market_cap_usd": 5000,
+                            "txns": 100, "total_tax_pct": 4, "call_count": 1,
+                            "holders": 20, "watchers": 50},
+        "completed_hot": {"age_minutes": 300, "pool_usd": 3000, "txns": 800,
+                          "total_tax_pct": 4, "call_count": 5,
+                          "holders": 200, "watchers": 200},
+    },
+    "sol": {
+        # BOOTSTRAP (2026-10-07): 照抄 bsc, 数据收集期用, 不作为有效阈值
+        "new_creation": {"txns": 30, "total_tax_pct": 4, "call_count": 1,
+                         "holders": 10, "watchers": 10},
+        "near_completion": {"age_minutes": 30, "market_cap_usd": 5000,
+                            "txns": 100, "total_tax_pct": 4, "call_count": 1,
+                            "holders": 20, "watchers": 50},
+        "completed_hot": {"age_minutes": 300, "pool_usd": 3000, "txns": 800,
+                          "total_tax_pct": 4, "call_count": 5,
+                          "holders": 200, "watchers": 200},
+    },
+}
+
+
 @dataclass
 class CheckResult:
     passed: bool
@@ -43,57 +72,65 @@ def _check(cond_name, value, op, threshold, res: CheckResult):
     return ok
 
 
-def screen_new_creation(t: dict) -> CheckResult:
+def _th(chain: str, stage: str, key: str):
+    """取阈值; 未知链回退 bsc (保守)"""
+    return THRESHOLDS.get(chain, THRESHOLDS["bsc"])[stage][key]
+
+
+def screen_new_creation(t: dict, chain: str = "bsc") -> CheckResult:
     """新创建阶段初筛"""
+    th = THRESHOLDS.get(chain, THRESHOLDS["bsc"])["new_creation"]
     r = CheckResult(passed=True)
     ok = True
-    ok &= _check("txns", _get(t, "txns_1h", "txns"), lambda v, x: v > x, 30, r)
+    ok &= _check("txns", _get(t, "txns_1h", "txns"), lambda v, x: v > x, th["txns"], r)
     tax = _get(t, "total_tax_pct")
     if tax is None:
         b = _get(t, "buy_tax_pct"); s = _get(t, "sell_tax_pct")
         tax = (b or 0) + (s or 0) if (b is not None or s is not None) else None
-    ok &= _check("total_tax_pct", tax, lambda v, x: v <= x, 4, r)
-    ok &= _check("call_count", _get(t, "call_count", "calls"), lambda v, x: v > x, 1, r)
-    ok &= _check("holders", _get(t, "holders"), lambda v, x: v > x, 10, r)
-    ok &= _check("watchers", _get(t, "watchers"), lambda v, x: v > x, 10, r)
+    ok &= _check("total_tax_pct", tax, lambda v, x: v <= x, th["total_tax_pct"], r)
+    ok &= _check("call_count", _get(t, "call_count", "calls"), lambda v, x: v > x, th["call_count"], r)
+    ok &= _check("holders", _get(t, "holders"), lambda v, x: v > x, th["holders"], r)
+    ok &= _check("watchers", _get(t, "watchers"), lambda v, x: v > x, th["watchers"], r)
     r.passed = ok and not r.unknown
     return r
 
 
-def screen_near_completion(t: dict) -> CheckResult:
+def screen_near_completion(t: dict, chain: str = "bsc") -> CheckResult:
     """即将打满阶段初筛"""
+    th = THRESHOLDS.get(chain, THRESHOLDS["bsc"])["near_completion"]
     r = CheckResult(passed=True)
     ok = True
-    ok &= _check("age_minutes", _get(t, "age_minutes"), lambda v, x: v < x, 30, r)
-    ok &= _check("market_cap_usd", _get(t, "market_cap_usd", "mcap"), lambda v, x: v > x, 5000, r)
-    ok &= _check("txns", _get(t, "txns_1h", "txns"), lambda v, x: v > x, 100, r)
+    ok &= _check("age_minutes", _get(t, "age_minutes"), lambda v, x: v < x, th["age_minutes"], r)
+    ok &= _check("market_cap_usd", _get(t, "market_cap_usd", "mcap"), lambda v, x: v > x, th["market_cap_usd"], r)
+    ok &= _check("txns", _get(t, "txns_1h", "txns"), lambda v, x: v > x, th["txns"], r)
     tax = _get(t, "total_tax_pct")
     if tax is None:
         b = _get(t, "buy_tax_pct"); s = _get(t, "sell_tax_pct")
         tax = (b or 0) + (s or 0) if (b is not None or s is not None) else None
-    ok &= _check("total_tax_pct", tax, lambda v, x: v <= x, 4, r)
-    ok &= _check("call_count", _get(t, "call_count", "calls"), lambda v, x: v > x, 1, r)
-    ok &= _check("holders", _get(t, "holders"), lambda v, x: v > x, 20, r)
-    ok &= _check("watchers", _get(t, "watchers"), lambda v, x: v > x, 50, r)
+    ok &= _check("total_tax_pct", tax, lambda v, x: v <= x, th["total_tax_pct"], r)
+    ok &= _check("call_count", _get(t, "call_count", "calls"), lambda v, x: v > x, th["call_count"], r)
+    ok &= _check("holders", _get(t, "holders"), lambda v, x: v > x, th["holders"], r)
+    ok &= _check("watchers", _get(t, "watchers"), lambda v, x: v > x, th["watchers"], r)
     r.passed = ok and not r.unknown
     return r
 
 
-def screen_completed_hot(t: dict) -> CheckResult:
+def screen_completed_hot(t: dict, chain: str = "bsc") -> CheckResult:
     """已开盘即热初筛 (注意: 300分钟仅用于识别"即热", 二段走生命周期状态机)"""
+    th = THRESHOLDS.get(chain, THRESHOLDS["bsc"])["completed_hot"]
     r = CheckResult(passed=True)
     ok = True
-    ok &= _check("age_minutes", _get(t, "age_minutes"), lambda v, x: v < x, 300, r)
-    ok &= _check("pool_usd", _get(t, "pool_usd", "liquidity_usd"), lambda v, x: v > x, 3000, r)
-    ok &= _check("txns", _get(t, "txns_1h", "txns"), lambda v, x: v > x, 800, r)
+    ok &= _check("age_minutes", _get(t, "age_minutes"), lambda v, x: v < x, th["age_minutes"], r)
+    ok &= _check("pool_usd", _get(t, "pool_usd", "liquidity_usd"), lambda v, x: v > x, th["pool_usd"], r)
+    ok &= _check("txns", _get(t, "txns_1h", "txns"), lambda v, x: v > x, th["txns"], r)
     tax = _get(t, "total_tax_pct")
     if tax is None:
         b = _get(t, "buy_tax_pct"); s = _get(t, "sell_tax_pct")
         tax = (b or 0) + (s or 0) if (b is not None or s is not None) else None
-    ok &= _check("total_tax_pct", tax, lambda v, x: v <= x, 4, r)
-    ok &= _check("call_count", _get(t, "call_count", "calls"), lambda v, x: v > x, 5, r)
-    ok &= _check("holders", _get(t, "holders"), lambda v, x: v > x, 200, r)
-    ok &= _check("watchers", _get(t, "watchers"), lambda v, x: v > x, 200, r)
+    ok &= _check("total_tax_pct", tax, lambda v, x: v <= x, th["total_tax_pct"], r)
+    ok &= _check("call_count", _get(t, "call_count", "calls"), lambda v, x: v > x, th["call_count"], r)
+    ok &= _check("holders", _get(t, "holders"), lambda v, x: v > x, th["holders"], r)
+    ok &= _check("watchers", _get(t, "watchers"), lambda v, x: v > x, th["watchers"], r)
     r.passed = ok and not r.unknown
     return r
 
@@ -126,13 +163,15 @@ def is_dead_for_benchmark(t: dict) -> bool:
     return txns < 10 or holders < 5
 
 
-def screen(token: dict, stage: str, ignore: set | None = None) -> CheckResult:
+def screen(token: dict, stage: str, ignore: set | None = None,
+         chain: str = "bsc") -> CheckResult:
     """ignore: 跳过的条件名集合 (如 {'watchers'}), 用于两阶段筛选中
-    第一阶段跳过需富化才能获得的字段"""
+    第一阶段跳过需富化才能获得的字段
+    chain: 按链取阈值 (bsc/sol), 默认 bsc 保持旧行为"""
     fn = SCREENS.get(stage)
     if not fn:
         raise ValueError(f"unknown stage: {stage}")
-    r = fn(token)
+    r = fn(token, chain=chain)
     if ignore:
         # 被忽略的条件从 unknown 中移除, 不计入 fail-closed
         r.unknown = [u for u in r.unknown if u not in ignore]
