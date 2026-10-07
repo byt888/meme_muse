@@ -1,0 +1,45 @@
+# 复制为 config.yaml 后修改
+# cp config/config.example.yaml config/config.yaml
+
+chain: bsc            # bsc | sol | eth (sol/eth 适配器待实现)
+dry_run: true         # true=纸面/模拟, 不真下单。实盘需显式改为 false 并完成授权
+
+chains:
+  bsc:
+    rpc: ""           # 自持钱包(B轨)用, 留空则仅用 A轨 GMGN
+    native: BNB
+  sol:
+    rpc: ""
+    native: SOL
+  eth:
+    rpc: ""
+    native: ETH
+
+# 分阶段风控参数 (USD) — 蓝图值, 纸面跑验证后才可作为实盘值
+stages:
+  new_creation:    { per_trade: 3.5, max_positions: 1 }
+  near_completion: { per_trade: 5.5, max_positions: 2 }
+  completed_hot:   { per_trade: 7.0, max_positions: 2 }
+  second_wave:     { per_trade: 7.0, max_positions: 2 }
+
+risk:
+  global_max_positions: 4
+  global_max_exposure_usd: 24.0
+  hard_stop_pct: -30
+  take_profit_1_pct: 100
+  trailing_drawdown_pct: 25
+  take_profit_2_pct: 400
+  moon_drawdown_pct: 40
+
+# 初筛阈值 (与 screening/filters.py 默认值一致, 可覆盖)
+screens:
+  new_creation:    { txns: 30,  total_tax_pct: 4, call_count: 1, holders: 10,  watchers: 10 }
+  near_completion: { age_minutes: 30, market_cap_usd: 5000, txns: 100, total_tax_pct: 4, call_count: 1, holders: 20, watchers: 50 }
+  completed_hot:   { age_minutes: 300, pool_usd: 3000, txns: 800, total_tax_pct: 4, call_count: 5, holders: 200, watchers: 200 }
+
+sources:
+  j7tracker:
+    enabled: true
+    ws_host: dfw.j7tracker.io   # 边缘节点, 可切换 nj.j7tracker.io
+  telegram:
+    enabled: false              # 待接入
